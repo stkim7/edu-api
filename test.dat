@@ -1,1 +1,7 @@
 test1
+
+
+-taggerdate
+
+git log --abbrev-commit --oneline
+git log --pretty=oneline --abbrev-commit 
