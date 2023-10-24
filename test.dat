@@ -7,4 +7,4 @@ git log --abbrev-commit --oneline
 git log --pretty=oneline --abbrev-commit 
 
 
-good ~~~~~~~~~~~~~~~~~~~~~
+굳
