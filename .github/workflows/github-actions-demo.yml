@@ -7,6 +7,10 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
+        
+      - name: Thank you
+        uses: stkim7/actions-thank-you-new@master
+        
       - run: |
           set +x
           echo "event: ${{github.event_name}}"
