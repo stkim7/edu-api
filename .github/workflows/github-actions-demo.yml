@@ -9,7 +9,7 @@ jobs:
         uses: actions/checkout@v2
         
       - name: Thank you
-        uses: stkim7/actions-thank-you-new@master
+        uses: ./.github/actions/thank-you
         
       - run: |
           set +x
