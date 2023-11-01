@@ -20,11 +20,4 @@ jobs:
           ls ${{ github.workspace }}
       - run: echo "🍏 This job's status is ${{ job.status }}."
       
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install dependencies
-        run: |
-          echo "Installation Start!"
-          python -m pip install -U pip setuptools
-          echo "Completion 😃" 
+ 
