@@ -9,6 +9,6 @@ git log --pretty=oneline --abbrev-commit
 
 very good
 
-git config --global push.followTags true
+git config --global push.followTags true   
 
 진짜 굳!!!        
