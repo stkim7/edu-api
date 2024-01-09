@@ -3,7 +3,7 @@ run-name: ${{ github.actor }} is learning github actions
 on: 
   push:
     branches:
-      - 'develop'
+      - 'master'
 jobs:
   Explore-GitHub-Actions:
     runs-on: ubuntu-latest
