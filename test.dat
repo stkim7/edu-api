@@ -12,3 +12,16 @@ very good
 git config --global push.followTags true   
 
 진짜 굳!!!        
+
+
+curl -u "$NEXUS_ADMIN_CRED_USR:$NEXUS_ADMIN_CRED_PSW" \
+                       -X "POST" \
+                       "http://nexus.wise.net:8085/service/rest/v1/components?repository=maven-releases" \
+                       -H "accept: application/json" \
+                       -H "Content-Type: multipart/form-data" \
+                       -F "maven2.groupId=net.wise" \
+                       -F "maven2.artifactId=devpro-ms-template" \
+                       -F "maven2.version=$Artifact_Version" \
+                       -F "maven2.packaging=tar" \
+                       -F "maven2.asset1=@devpro-ms-template.tar" \
+                       -F "maven2.asset1.extension=tar"
