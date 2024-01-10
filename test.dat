@@ -25,3 +25,340 @@ curl -u "$NEXUS_ADMIN_CRED_USR:$NEXUS_ADMIN_CRED_PSW" \
                        -F "maven2.packaging=tar" \
                        -F "maven2.asset1=@devpro-ms-template.tar" \
                        -F "maven2.asset1.extension=tar"
+
+
+
+pipeline {
+    agent any
+    
+    environment {
+        GIT_ACC_TOKEN = credentials('git_ciadmin_act')
+        NEXUS_ADMIN_CRED = credentials('nexus_admin_cred')
+        JAVA_HOME = '/usr/lib/jvm/java-17-openjdk-17.0.9.0.9-2.el8_8.x86_64'
+        GRADLE_HOME = '/app/gradle-8.2'
+        PATH="${env.JAVA_HOME}/bin:${env.GRADLE_HOME}/bin:${env.PATH}"
+    }
+
+    stages {
+        stage('Clone') {
+            steps {
+                script {
+                    env.Artifact_Version=env.Deploy_Version.toLowerCase().replace("v", "")
+
+                    cleanWs()
+                }
+                
+                git branch: 'release', credentialsId: 'git_ciadmin_act', 
+	               url: 'https://gitlab.wise.net:8081/wise/backend/devpro-ms-template.git'
+	               
+	            sh '''
+	               set +x
+                   latestTag=$(git tag --list "$Deploy_Version" --sort=-v:refname | head -1)
+                   
+                   if [ "$latestTag" != "" ];
+                   then
+                      echo "Tag[$latestTag] is already exist"
+                      exit -1
+                   fi
+                '''
+            }
+        }
+        
+        stage('Build source') {
+            steps {
+                sh '''
+                   set +x
+                   
+                   gradle build
+                '''
+            }
+        }
+        
+        stage('Publish to Nexus') {
+            steps {
+                sh '''
+                    
+                    cp ./build/libs/devpro-ms-template-1.0.0.jar ./devpro-ms-template.jar
+                    tar cvf devpro-ms-template.tar devpro-ms-template.jar devpro*.db
+                    
+                    curl -u "$NEXUS_ADMIN_CRED_USR:$NEXUS_ADMIN_CRED_PSW" \
+                       -X "POST" \
+                       "http://nexus.wise.net:8085/service/rest/v1/components?repository=maven-releases" \
+                       -H "accept: application/json" \
+                       -H "Content-Type: multipart/form-data" \
+                       -F "maven2.groupId=net.wise" \
+                       -F "maven2.artifactId=devpro-ms-template" \
+                       -F "maven2.version=$Artifact_Version" \
+                       -F "maven2.packaging=tar" \
+                       -F "maven2.asset1=@devpro-ms-template.tar" \
+                       -F "maven2.asset1.extension=tar"
+                '''
+                
+                /* nexusArtifactUploader(
+                   nexusVersion: 'nexus3',
+                   protocol: 'http',
+                   nexusUrl: '14.63.165.226:8085',
+                   groupId: 'com.ktds',
+                   version: env.Artifact_Version,
+                   repository: 'maven-releases',
+                   credentialsId: 'nexus_admin_cred',
+                   artifacts: [
+                      [artifactId: 'edu-api',
+                       classifier: '',
+                       file: 'edu-api.jar',
+                       type: 'jar']
+                   ]
+                ) */
+                
+            }
+        }
+        
+        stage('Merge and tag') {
+            steps {
+                sh '''
+                    set +x
+                    
+                    ORIGIN="https://$GIT_ACC_TOKEN_USR:$GIT_ACC_TOKEN_PSW@gitlab.wise.net:8081/wise/backend/devpro-ms-template.git"
+                       
+                    git tag -a "$Deploy_Version" -m "tagged by jenkins"
+                    git push $ORIGIN "$Deploy_Version"
+                    
+                    git checkout -b master
+                    git pull $ORIGIN master
+                    git merge release
+                    git push $ORIGIN master
+                '''
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import jenkins.*
+import jenkins.model.*
+import hudson.*
+import hudson.model.*
+import com.cloudbees.plugins.credentials.*
+import java.net.*
+import javax.net.ssl.*
+import java.security.cert.X509Certificate
+import groovy.json.JsonSlurper
+
+baseUrl = "http://nexus.wise.net:8085"
+repoName = "maven-releases"
+groupId = "net.wise"
+artifactId = "devpro-ms-template"
+extension = "tar"
+
+// 리스트에 보여질 개수
+maxCount = 10
+
+// nexus artifact 배포 버전 확인 url
+baseSearchUrl = String.format("$baseUrl"
+  + "/service/rest/v1/search?repository=$repoName"
+  + "&format=maven2&maven.groupId=$groupId"
+  + "&maven.artifactId=$artifactId&maven.extension=$extension",
+  baseUrl, repoName, groupId, artifactId)
+
+itemList = []
+
+try {
+    ignoreSSL()
+
+    getItemList(baseSearchUrl)
+    versions = sortVer()
+
+    optionStr = ""
+    for (version in versions) {
+        optionStr += """<option value="${version}">v${version}</option>"""
+    }
+    
+    return """
+        <b>배포할 버전(Nexus repository artifact 기준)을 선택하세요. </b><br/><br/>
+        <select name="value">
+            ${optionStr}
+        </select>
+    """
+} catch (Exception ex) {
+    errorMsg = ex.toString()
+
+    return """
+        <b> 오류: ${errorMsg} </b>
+    """
+}
+
+def ignoreSSL() {
+    def nullTrustManager = [
+        checkClientTrusted: { chain, authType ->  },
+        checkServerTrusted: { chain, authType ->  },
+        getAcceptedIssuers: { null }
+    ]
+
+    def nullHostnameVerifier = [
+        verify: { hostname, session -> true }
+    ]
+
+    SSLContext sc = SSLContext.getInstance("SSL")
+    sc.init(null, [nullTrustManager as X509TrustManager] as TrustManager[], null)
+    HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory())
+    HttpsURLConnection.setDefaultHostnameVerifier(nullHostnameVerifier as HostnameVerifier)
+}
+
+def getItemList(searchUrl) {
+    http = new URL(searchUrl).openConnection()
+    http.setRequestMethod("GET")
+
+    response = new JsonSlurper().parseText(http.inputStream.getText("UTF-8"))
+
+    for (item in response.items) {
+          itemAttrs = []
+          itemAttrs.add(item.id)
+          itemAttrs.add(item.version)
+
+          itemList.add(itemAttrs)
+    }
+
+    // pagenation 적용
+    if(response.continuationToken != null) {
+        getVersions(baseSearchUrl + "&continuationToken=" + response.continuationToken)
+    }
+}
+
+def sortVer() {
+    dataMap = [:]
+    dataKey = []
+    count = 1
+
+    for(item in itemList) {
+        token = item[1].split("\\.")
+
+        if(token.size() == 3) {
+            idx = String.format("%05d", token[0].trim().toInteger()) +
+                        String.format("%05d", token[1].trim().toInteger()) +
+                        String.format("%05d", token[2].trim().toInteger())
+                  dataKey.add(idx)
+                  dataMap[idx] = item
+         }
+    }
+
+    dataKey = dataKey.sort().reverse()
+
+    rtnVers = []
+
+    for(int i=0; i<dataMap.size(); i++) {
+
+        if(i < maxCount ) {
+            rtnVers.add( dataMap[dataKey[i]][1] )
+        } else {
+            componentId = dataMap[dataKey[i]][0]
+
+            deleteUrl =  String.format("$baseUrl/service/rest/v1/components/$componentId",
+            baseUrl, componentId)
+
+            nexusCred = getNexusCred()
+
+            def basicAuth = 'Basic ' + (nexusCred[0] + ':' + nexusCred[1])
+                 .getBytes("UTF-8").encodeBase64().toString()
+
+            http = new URL(deleteUrl).openConnection()
+            http.setRequestProperty ("Authorization", basicAuth);
+            http.setRequestMethod("DELETE")
+           
+            http.getResponseCode()
+        }
+    }  
+
+    return rtnVers
+}
+
+def getNexusCred() {
+    nexusCred = []
+    jenkinsCredentials = CredentialsProvider.lookupCredentials(
+        Credentials.class, Jenkins.instance, null, null
+    )
+
+    for (cred in jenkinsCredentials) {
+        if(cred.id == "nexus_admin_cred") {
+            nexusCred.add(cred.username.toString())
+            nexusCred.add(cred.password.toString())
+
+            return nexusCred
+        }
+    }
+
+    return null   
+}
+
+
+
+
+
+
+
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Download artifact') {
+            steps {
+                script {
+                    cleanWs()
+                }
+                
+                sh '''
+                   wget --no-verbose http://nexus.wise.net:8085/repository/maven-releases/net/wise/devpro-ms-template/${Deploy_Version}/devpro-ms-template-${Deploy_Version}.tar
+                   # mv edu-web-${Release_Version}.war edu-web.war
+                '''
+            }
+        }
+        stage('Stop WAS') {
+            steps {
+                sh '''
+                    # ssh stkim7@192.168.32.41 "sudo systemctl stop tomcat" 
+                '''
+            }
+        }
+        
+        stage('Copy artifact to Dev Was') {
+            steps {
+                sh '''
+                    # ssh -o StrictHostKeyChecking=no stkim7@192.168.32.41 "rm -rf /app/apache-tomcat-9.0.69/webapps/edu-web" 
+                    # scp -o StrictHostKeyChecking=no edu-web.war stkim7@192.168.32.41:/app/apache-tomcat-9.0.69/webapps 
+                '''
+            }
+        }
+        
+        stage('Start WAS') {
+            steps {
+                sh '''
+                    # ssh -o StrictHostKeyChecking=no stkim7@192.168.32.41 "sudo systemctl start tomcat" 
+                '''
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
