@@ -7,7 +7,7 @@ git log --abbrev-commit --oneline
 git log --pretty=oneline --abbrev-commit 
 
 
-very good
+very good   
 
 git config --global push.followTags true   
 
